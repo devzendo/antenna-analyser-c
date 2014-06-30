@@ -1,4 +1,4 @@
-CFLAGS=-Wall -I/Developer/SDKs/MacOSX10.6.sdk/usr/include -I/Developer/usr/lib/gcc/i686-apple-darwin10/4.2.1/include
+CFLAGS=-Wall 
 
 all: analyser
 
@@ -9,7 +9,7 @@ analyser.c: global.h util.h asy.h
 analyser.o: asy.c analyser.c util.c
 
 analyser: asy.o analyser.o util.o
-	cc -o analyser asy.o analyser.o util.o -L/Developer/SDKs/MacOSX10.6.sdk/usr/lib
+	cc -o analyser asy.o analyser.o util.o
 
 clean:
 	rm -f *.o analyser
