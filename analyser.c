@@ -83,7 +83,7 @@ static void usage()
   printf("            Default is %s.\n", defport);
   printf("  -a<hz>    Set start frequency in Hertz.\n");
   printf("  -b<hz>    Set stop frequency in Hertz.\n");
-  printf("  -d<ms>    Set settle delay in Milliseconds. Default %d.\n", defsettle);
+  printf("  -s<ms>    Set settle delay in Milliseconds. Default %d.\n", defsettle);
   printf("  -n<num>   Set number of steps between start and stop frequency. Default %d.\n", defsteps);
   printf("  -f<file>  Set name of analyser output capture file. Default is a\n");
   printf("            temp file that's deleted. Use this to keep the output.\n");
