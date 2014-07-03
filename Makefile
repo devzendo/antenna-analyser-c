@@ -1,4 +1,18 @@
-CFLAGS=-Wall 
+# Choose one platform
+
+# For Mac OS X 10.7
+PLATFORM=MACOSX
+
+# For Ubuntu, Debian, Mint
+#PLATFORM=DEBIAN
+
+# For Red Hat, Fedora, CentOS
+#PLATFORM=REDHAT
+
+# For the Raspberry Pi, hurrah!
+#PLATFORM=RASPBIAN
+
+CFLAGS=-Wall -D${PLATFORM}
 
 all: analyser
 
