@@ -19,6 +19,8 @@
 #include <termios.h>
 #include <signal.h>
 #include <stdlib.h>
+#include <unistd.h>
+#include <errno.h>
 
 #include "config.h"
 
@@ -34,36 +36,73 @@ static int defsettle=10;
 static int defsteps=100;
 static char portfd = -1;
 static int verbose = FALSE;
+static const int linemax = 256;
+static const int fileNameMax = 128; // get this from limits.h?
+static char *tempScanFileName = NULL;
+static char scanFileName[fileNameMax];
+static char plotFileName[fileNameMax];
+static bool scanFileTemporary = TRUE;
+static FILE *scanOutput = NULL;
+static FILE *gnuplotCommandsOutput = NULL;
+
 
 void sighandler(int signal)
 {
   quit = TRUE;
 }
 
+
 static void banner()
 {
-  printf("analyser v%s - K6BEZ antenna analyser gnuplot scanner\n", VERSION);
+  printf("analyser v%s - K6BEZ antenna analyser driver & gnuplot plotter\n", VERSION);
   printf("(C) 2014 Matt J. Gumbley, M0CUV, matt@gumbley.me.uk\n");
   printf("http://github.com/devzendo/antenna-analyser-c\n\n");
+  printf("With thanks to:\n");
+  printf("  Beric Dunn K6BEZ for the analyser design\n");
+  printf("  Simon Kennedy G0FCU for assistance with gnuplot\n");
+  printf("\n");
 }
+
 
 static void usage()
 {
   banner();
+  printf("This program can be run in one of two modes:\n");
+  printf("* Use a connected analyser to scan a frequency range, writing the\n");
+  printf("  output to a file.\n");
+  printf("* Generate/display a plot of the current scan, or a previously\n");
+  printf("  saved file.\n");
+  printf("- You can run both modes at the same time - scan and plot.\n");
+  printf("\n");
   printf("Syntax:\n");
   printf("  %s [options]\n", progname);
   printf("Options:\n");
+  printf("  -v        Enable verbose operation\n");
+  printf("Scan options:\n");
   printf("  -p<port>  Set analyser port. <port> is something like /dev/tty.usbmodemmfd111.\n");
   printf("            Default is %s.\n", defport);
-  printf("  -v        Enable verbose operation\n");
   printf("  -a<hz>    Set start frequency in Hertz.\n");
   printf("  -b<hz>    Set stop frequency in Hertz.\n");
   printf("  -d<ms>    Set settle delay in Milliseconds. Default %d.\n", defsettle);
   printf("  -n<num>   Set number of steps between start and stop frequency. Default %d.\n", defsteps);
   printf("  -f<file>  Set name of analyser output capture file. Default is a\n");
   printf("            temp file that's deleted. Use this to keep the output.\n");
+  printf("(You must give -a/-b to run a scan.)\n");
+  printf("\n");
+  printf("Plot options:\n");
+  printf("  -t<title> Set the title shown in the plot output\n");
+  printf("  -o<file>  Set name of plot output file e.g. dipole.png\n");
+  printf("  -m<term>  Use this terminal type with gnuplot, e.g.\n");
+  printf("            qt, aqua, x11, png, canvas, eps. Default is canvas.\n");
+  printf("  -w        Display the plot in a window, using an appropriate\n");
+  printf("            gnuplot terminal for your system: aqua on Mac OS X...\n");
+  printf("(You must give either -o and -m<term> to plot to a file\n");
+  printf(" or -w to display interactively without saving the plot.\n");
+  printf(" If you have used -f to scan to a file and want to plot that file,\n");
+  printf(" just give -f and the plot options.\n");
   exit(1);
 }
+
 
 static void spinner()
 {
@@ -73,13 +112,32 @@ static int c=0;
   c&=3;
 }
 
-static void finish(int code)
-{
+
+static void close_serial() {
   if (portfd != -1) {
     asy_close(portfd);
+    portfd = -1;
   }
+}
+
+static void finish(int code)
+{
+  close_serial();
+
+  if (scanOutput != NULL) {
+    fclose(scanOutput);
+  }
+
+  if (scanFileTemporary) {
+    unlink(scanFileName);
+  }
+  if (tempScanFileName != NULL) {
+    free(tempScanFileName);
+  }
+
   exit(code);
 }
+
 
 static bool write_line(char *line)
 {
@@ -87,6 +145,7 @@ int len = strlen(line);
 int written = asy_write(portfd, (byte *) line, len);
   return len == written;
 }
+
 
 static bool read_line(char *line, int maxlen)
 {
@@ -112,12 +171,14 @@ int ch = -1;
   return FALSE;
 }
 
+
 static void write_line_successfully(char *line, char* error, int code) {
   if (!write_line(line)) {
     puts(error);
     finish(code);
   }
 }
+
 
 static void read_line_successfully(char *line, int linemax, char *error, int code) {
   if (!read_line(line, linemax)) {
@@ -126,61 +187,56 @@ static void read_line_successfully(char *line, int linemax, char *error, int cod
   }
 }
  
-int main(int argc, char *argv[])
-{
-int i;
-char *p;
-const int portmax = 64;
-char port[portmax];
-long startFreq = 0L;
-long stopFreq = 0L;
-int numSteps = defsteps;
-int settleDelay = defsettle;
-const int linemax = 256;
-char line[linemax];
-bool scan_end = FALSE;
-long scan_freq, scan_vswr, scan_fwdv, scan_revv;
 
-  /* Initialise sensible defaults, etc. */
-  progname = argv[0];
-  strncpy(port, defport, portmax);
+static char *tmpenv = NULL;
 
-  /* Process command line options */
-  for (i=1; i<argc; i++) {
-    if (argv[i][0]=='-') {
-      p=&argv[i][2];
-      switch (argv[i][1]) {
-        case 'v':
-          verbose = TRUE;
-          break;
-        case 'p':
-          strncpy(port, p, portmax);
-          /* XXX: check existence, deviceness? */
-          break;
-        case 'a':
-          sscanf(p, "%ld", &startFreq);
-          break;
-        case 'b':
-          sscanf(p, "%ld", &stopFreq);
-          break;
-        case 'n':
-          sscanf(p, "%d", &numSteps);
-          break;
-        case 's':
-          sscanf(p, "%d", &settleDelay);
-          break;
-        default:
-          usage();
-      }
-    }
-    else
-      usage();
+char *allocateTempFileName() {
+char tempPath[fileNameMax];
+char *tempFileName;
+
+  if (tmpenv == NULL) {
+    tmpenv = getenv("TMPDIR");
   }
+  if (tmpenv == NULL) {
+    tmpenv = "/tmp/";
+  }
+
+  if (tmpenv[strlen(tmpenv) - 1] == '/') {
+    sprintf(tempPath, "%stemp.XXXX", tmpenv);
+  } else {
+    sprintf(tempPath, "%s/temp.XXXX", tmpenv);
+  }
+
+  if (mktemp(tempPath) == NULL) {
+    printf("Cannot create temporary file name\n");
+    exit(-1);
+  }
+  tempFileName = strdup(tempPath);
+  if (tempFileName == NULL) {
+    printf("Cannot allocate memory for temporary file name\n");
+    exit(-1);
+  }
+  return tempFileName;
+}
+
+
+void scan(bool verbose, char* port, long startFreq, long stopFreq,
+  int numSteps, int settleDelay, char *scanFileName) {
+bool scan_end = FALSE;
+char line[linemax];
+long scan_freq, scan_vswr, scan_fwdv, scan_revv;
+char scanLineOutput[linemax];
 
   if (verbose) {
     printf("port: %s at %d baud\n", port, defbps);
     printf("start freq: %ld Hz, end freq: %ld Hz, steps: %d, settle: %d ms\n",
       startFreq, stopFreq, numSteps, settleDelay);
+  }
+
+  scanOutput = fopen(scanFileName, "w+");
+  if (scanOutput == NULL) {
+    printf("Cannot open scan file '%s' for write: %s\n", scanFileName, strerror(errno));
+    exit(-1);
   }
 
   /* Trap CTRL-C */
@@ -238,15 +294,21 @@ long scan_freq, scan_vswr, scan_fwdv, scan_revv;
       } else {
         spinner();
       }
+      // Ignore the .00 parts of the fields for now...
       sscanf(line, "%ld.00,0,%ld,%ld.00,%ld.00\n",
              &scan_freq, &scan_vswr, &scan_fwdv, &scan_revv);
-      // TODO Print this to the gnuplot input file
+      sprintf(scanLineOutput, "%f %f\n", scan_freq / 1000000.0, scan_vswr / 1000.0);
+      fputs(scanLineOutput, scanOutput);
       if (verbose) {
         printf("Freq: %ld VSWR: %ld Fwd: %ld Rev: %ld\n",
                scan_freq, scan_vswr, scan_fwdv, scan_revv);
+        printf("Output to gnuplot: %s", scanLineOutput);
       }
     }
   }
+
+  fclose(scanOutput);
+  scanOutput = NULL;
 
   if (quit) {
     puts("Terminating scan...\n");
@@ -254,12 +316,152 @@ long scan_freq, scan_vswr, scan_fwdv, scan_revv;
     asy_flush(portfd);
   }
 
+  close_serial();
+}
+
+
+void plot(bool window, char *title, char *term, 
+  char *plotFileName, char *scanFileName) {
+char gnuplotCommand[linemax];
+char *gnuplotCommandsFileName = allocateTempFileName();
+char termTitleCommand[linemax];
+
+  // Include the title in the plot if the terminal type supports it in the 
+  // term command. gif, jpeg, png don't. 
+  termTitleCommand[0] = '\0';
+  if (strcmp(term, "aqua") == 0 ||
+      strcmp(term, "x11") == 0) {
+    sprintf(termTitleCommand, " title \"%s\"", title);
+  }
+
+  // Generate the plot
+  gnuplotCommandsOutput = fopen(gnuplotCommandsFileName, "w+");
+  if (gnuplotCommandsOutput == NULL) {
+    printf("Cannot open gnuplot commands file '%s' for write: %s\n", gnuplotCommandsFileName, strerror(errno));
+    finish(-1);
+  }
+
+  fprintf(gnuplotCommandsOutput, "set term %s size 600,400%s\n", 
+    term, termTitleCommand);
+  if (plotFileName[0] != '\0') {
+    fprintf(gnuplotCommandsOutput, "set output \"%s\"\n", plotFileName);
+  }
+  fprintf(gnuplotCommandsOutput, "set linetype 1 lw 1 lc rgb \"blue\" pointtype 0\n");
+  fprintf(gnuplotCommandsOutput, "set xlabel 'Frequency (MHz)'\n");
+  fprintf(gnuplotCommandsOutput, "set ylabel 'SWR'\n");
+  fprintf(gnuplotCommandsOutput, "set xtics scale 2,1\n");
+  fprintf(gnuplotCommandsOutput, "set mxtics 5\n");
+  fprintf(gnuplotCommandsOutput, "plot '%s' smooth bezier title '%s'\n", scanFileName, title);
+  fclose(gnuplotCommandsOutput);
+    
+  sprintf(gnuplotCommand, "gnuplot %s", gnuplotCommandsFileName);
+  system(gnuplotCommand);
+
+  unlink(gnuplotCommandsFileName);
+  free(gnuplotCommandsFileName);
+}
+
+
+int main(int argc, char *argv[])
+{
+int i;
+char *p;
+const int portmax = 64;
+char port[portmax];
+long startFreq = 0L;
+long stopFreq = 0L;
+int numSteps = defsteps;
+int settleDelay = defsettle;
+char title[linemax];
+char term[linemax];
+bool window = FALSE;
+
+  /* Initialise sensible defaults, etc. */
+  progname = argv[0];
+  strncpy(port, defport, portmax);
+
+  tempScanFileName = allocateTempFileName();
+  strcpy(scanFileName, tempScanFileName);
+
+
+  plotFileName[0] = '\0';
+
+  strcpy(title, "Unknown Antenna");
+  strcpy(term, "canvas");
+  
+  /* Process command line options */
+  for (i=1; i<argc; i++) {
+    if (argv[i][0]=='-') {
+      p=&argv[i][2];
+      switch (argv[i][1]) {
+        case 'v':
+          verbose = TRUE;
+          break;
+        case 'p':
+          strncpy(port, p, portmax);
+          /* XXX: check existence, deviceness? */
+          break;
+        case 'a':
+          sscanf(p, "%ld", &startFreq);
+          break;
+        case 'b':
+          sscanf(p, "%ld", &stopFreq);
+          break;
+        case 'n':
+          sscanf(p, "%d", &numSteps);
+          break;
+        case 's':
+          sscanf(p, "%d", &settleDelay);
+          break;
+        case 'f':
+          strncpy(scanFileName, p, fileNameMax);
+          scanFileTemporary = FALSE;
+          break;
+        case 't':
+          strncpy(title, p, linemax);
+          break;
+        case 'm':
+          strncpy(term, p, linemax);
+          break;
+        case 'o':
+          strncpy(plotFileName, p, fileNameMax);
+          break;
+        case 'w':
+          window = TRUE;
+          plotFileName[0] = '\0';
+#if defined(MACOSX)
+          strcpy(term, "aqua");
+#endif
+#if defined(REDHAT) || defined(DEBIAN) || defined(RASPBIAN)
+          strcpy(term, "x11");
+#endif
+          break;
+        default:
+          usage();
+      }
+    }
+    else
+      usage();
+  }
+
+  // Are we scanning?
+  if (startFreq != 0L && stopFreq != 0L) {
+    scan(verbose, port, startFreq, stopFreq, numSteps, settleDelay, scanFileName);
+  }
+
+  // Are we plotting?
+  // TODO Should allow interactive mode if term is qt, without having to specify a
+  // plot file name.
+  if ( plotFileName[0] != '\0' || // to a file
+       window                     // to a window
+     ) {
+    plot(window, title, term, plotFileName, scanFileName);
+  }
+
   if (verbose) {
     puts("Finished\n");
   }
 
-  asy_close(portfd);
-
-  return 0;
+  finish(0);
 }
 
