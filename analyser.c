@@ -45,6 +45,9 @@ static bool scanFileTemporary = TRUE;
 static FILE *scanOutput = NULL;
 static FILE *gnuplotCommandsOutput = NULL;
 
+static const int PLOT_TYPE_VSWR = 0;
+static const int PLOT_TYPE_FWD = 1;
+static const int PLOT_TYPE_REV = 2;
 
 void sighandler(int signal)
 {
@@ -73,6 +76,7 @@ static void usage()
   printf("* Generate/display a plot of the current scan, or a previously\n");
   printf("  saved file.\n");
   printf("- You can run both modes at the same time - scan and plot.\n");
+  printf("- You can measure detector voltages instead of scanning.\n");
   printf("\n");
   printf("Syntax:\n");
   printf("  %s [options]\n", progname);
@@ -88,6 +92,11 @@ static void usage()
   printf("  -f<file>  Set name of analyser output capture file. Default is a\n");
   printf("            temp file that's deleted. Use this to keep the output.\n");
   printf("(You must give -a/-b to run a scan.)\n");
+  printf("\n");
+  printf("Detector voltage scan:\n");
+  printf("  -df       Read forward detector voltages\n");
+  printf("  -dr       Read reverse detector voltages\n");
+  printf("(You may give -a<hz> to set the frequency before measuring voltage)\n");
   printf("\n");
   printf("Plot options:\n");
   printf("  -t<title> Set the title shown in the plot output\n");
@@ -220,17 +229,11 @@ char *tempFileName;
 }
 
 
-void scan(bool verbose, char* port, long startFreq, long stopFreq,
-  int numSteps, int settleDelay, char *scanFileName) {
-bool scan_end = FALSE;
+void openSerialAndScanOutput(bool verbose, char *port, char *scanFileName) {
 char line[linemax];
-long scan_freq, scan_vswr, scan_fwdv, scan_revv;
-char scanLineOutput[linemax];
 
   if (verbose) {
     printf("port: %s at %d baud\n", port, defbps);
-    printf("start freq: %ld Hz, end freq: %ld Hz, steps: %d, settle: %d ms\n",
-      startFreq, stopFreq, numSteps, settleDelay);
   }
 
   scanOutput = fopen(scanFileName, "w+");
@@ -261,6 +264,30 @@ char scanLineOutput[linemax];
   if (verbose) {
     printf("Query from analyser: %s", line);
   }
+}
+
+
+void closeSerialAndScanOutput() {
+  fclose(scanOutput);
+  scanOutput = NULL;
+
+  close_serial();
+}
+
+
+void scan(bool verbose, char* port, long startFreq, long stopFreq,
+  int numSteps, int settleDelay, char *scanFileName) {
+bool scan_end = FALSE;
+char line[linemax];
+long scan_freq, scan_vswr, scan_fwdv, scan_revv;
+char scanLineOutput[linemax];
+
+  openSerialAndScanOutput(verbose, port, scanFileName);
+
+  if (verbose) {
+    printf("start freq: %ld Hz, end freq: %ld Hz, steps: %d, settle: %d ms\n",
+      startFreq, stopFreq, numSteps, settleDelay);
+  }
 
   sprintf(line, "%ldA", startFreq);
   write_line_successfully(line, "Could not set start frequency\n", 3);
@@ -273,7 +300,6 @@ char scanLineOutput[linemax];
 
   sprintf(line, "%dD", settleDelay);
   write_line_successfully(line, "Could not set settle delay\n", 6);
-
 
   write_line_successfully("s", "Could not start scan\n", 7);
 
@@ -307,21 +333,70 @@ char scanLineOutput[linemax];
     }
   }
 
-  fclose(scanOutput);
-  scanOutput = NULL;
-
   if (quit) {
     puts("Terminating scan...\n");
     write_line("z");
     asy_flush(portfd);
   }
 
-  close_serial();
+  closeSerialAndScanOutput();
+}
+
+void oscilloscope(bool verbose, char* port, long startFreq, int settleDelay, char *scanFileName, int plotType) {
+bool scan_end = FALSE;
+char line[linemax];
+long sample_num, voltage;
+char scanLineOutput[linemax];
+
+  openSerialAndScanOutput(verbose, port, scanFileName);
+
+  if (verbose) {
+    printf("start freq: %ld Hz, settle: %d ms\n", startFreq, settleDelay);
+  }
+
+  sprintf(line, "%ldA", startFreq);
+  write_line_successfully(line, "Could not set start frequency\n", 3);
+
+  sprintf(line, "%dD", settleDelay);
+  write_line_successfully(line, "Could not set settle delay\n", 6);
+
+
+  write_line_successfully("o", "Could not start oscilloscope\n", 7);
+
+  if (verbose) {
+    puts("Starting oscilloscope\n");
+  }
+  scan_end = FALSE;
+  while (!quit && !scan_end) {
+    read_line_successfully(line, linemax, "Did not read the oscilloscope response\n", 8);
+
+    if (strncmp("End", line, 3) == 0) {
+      scan_end = TRUE;
+    }
+    else {
+
+      if (verbose) {
+        printf("Oscilloscope Line: %s", line);
+      } else {
+        spinner();
+      }
+      // Ignore the .00 parts of the fields for now...
+      sscanf(line, "%ld %ld\n", &sample_num, &voltage);
+      sprintf(scanLineOutput, "%ld %ld\n", sample_num, voltage);
+      fputs(scanLineOutput, scanOutput);
+      if (verbose) {
+        printf("Sample: %ld Voltage: %ld\n", sample_num, voltage);
+        printf("Output to gnuplot: %s", scanLineOutput);
+      }
+    }
+  }
+
+  closeSerialAndScanOutput();
 }
 
 
 void plot(bool window, char *title, char *term, 
-  char *plotFileName, char *scanFileName) {
+  char *plotFileName, char *scanFileName, int plotType) {
 char gnuplotCommand[linemax];
 char *gnuplotCommandsFileName = allocateTempFileName();
 char termTitleCommand[linemax];
@@ -346,12 +421,29 @@ char termTitleCommand[linemax];
   if (plotFileName[0] != '\0') {
     fprintf(gnuplotCommandsOutput, "set output \"%s\"\n", plotFileName);
   }
-  fprintf(gnuplotCommandsOutput, "set linetype 1 lw 1 lc rgb \"blue\" pointtype 0\n");
-  fprintf(gnuplotCommandsOutput, "set xlabel 'Frequency (MHz)'\n");
-  fprintf(gnuplotCommandsOutput, "set ylabel 'SWR'\n");
   fprintf(gnuplotCommandsOutput, "set xtics scale 2,1\n");
   fprintf(gnuplotCommandsOutput, "set mxtics 5\n");
-  fprintf(gnuplotCommandsOutput, "plot '%s' smooth bezier title '%s'\n", scanFileName, title);
+  fprintf(gnuplotCommandsOutput, "set linetype 1 lw 1 lc rgb \"blue\" pointtype 0\n");
+  switch (plotType) {
+    case PLOT_TYPE_VSWR:
+      fprintf(gnuplotCommandsOutput, "set xlabel 'Frequency (MHz)'\n");
+      fprintf(gnuplotCommandsOutput, "set ylabel 'SWR'\n");
+      fprintf(gnuplotCommandsOutput, "plot '%s' smooth bezier title '%s'\n", 
+        scanFileName, title);
+      break;
+    case PLOT_TYPE_FWD:
+      fprintf(gnuplotCommandsOutput, "set xlabel 'Samples'\n");
+      fprintf(gnuplotCommandsOutput, "set ylabel 'Forward Detector'\n");
+      fprintf(gnuplotCommandsOutput, "plot '%s' smooth bezier, '%s' with points\n",
+        scanFileName, scanFileName);
+      break;
+    case PLOT_TYPE_REV:
+      fprintf(gnuplotCommandsOutput, "set xlabel 'Samples'\n");
+      fprintf(gnuplotCommandsOutput, "set ylabel 'Reverse Detector'\n");
+      fprintf(gnuplotCommandsOutput, "plot '%s' smooth bezier, '%s' with points\n",
+        scanFileName, scanFileName);
+      break;
+  }
   fclose(gnuplotCommandsOutput);
     
   sprintf(gnuplotCommand, "gnuplot %s", gnuplotCommandsFileName);
@@ -375,6 +467,7 @@ int settleDelay = defsettle;
 char title[linemax];
 char term[linemax];
 bool window = FALSE;
+int plotType = PLOT_TYPE_VSWR;
 
   /* Initialise sensible defaults, etc. */
   progname = argv[0];
@@ -392,39 +485,51 @@ bool window = FALSE;
   /* Process command line options */
   for (i=1; i<argc; i++) {
     if (argv[i][0]=='-') {
-      p=&argv[i][2];
+      p=&argv[i][2]; // could be a buffer overflow ... if argv[i] is '-'
       switch (argv[i][1]) {
-        case 'v':
-          verbose = TRUE;
-          break;
-        case 'p':
-          strncpy(port, p, portmax);
-          /* XXX: check existence, deviceness? */
-          break;
         case 'a':
           sscanf(p, "%ld", &startFreq);
           break;
         case 'b':
           sscanf(p, "%ld", &stopFreq);
           break;
-        case 'n':
-          sscanf(p, "%d", &numSteps);
-          break;
-        case 's':
-          sscanf(p, "%d", &settleDelay);
+        case 'd':
+          switch (*p) {
+            case 'f':
+              plotType = PLOT_TYPE_FWD;
+              break;
+            case 'r':
+              plotType = PLOT_TYPE_REV;
+              break;
+            default:
+              usage();
+          }
           break;
         case 'f':
           strncpy(scanFileName, p, fileNameMax);
           scanFileTemporary = FALSE;
           break;
-        case 't':
-          strncpy(title, p, linemax);
-          break;
         case 'm':
           strncpy(term, p, linemax);
           break;
+        case 'n':
+          sscanf(p, "%d", &numSteps);
+          break;
         case 'o':
           strncpy(plotFileName, p, fileNameMax);
+          break;
+        case 'p':
+          strncpy(port, p, portmax);
+          /* XXX: check existence, deviceness? */
+          break;
+        case 's':
+          sscanf(p, "%d", &settleDelay);
+          break;
+        case 't':
+          strncpy(title, p, linemax);
+          break;
+        case 'v':
+          verbose = TRUE;
           break;
         case 'w':
           window = TRUE;
@@ -444,9 +549,15 @@ bool window = FALSE;
       usage();
   }
 
-  // Are we scanning?
-  if (startFreq != 0L && stopFreq != 0L) {
+  // Are we plotting VSWR?
+  if (plotType == PLOT_TYPE_VSWR && startFreq != 0L && stopFreq != 0L) {
     scan(verbose, port, startFreq, stopFreq, numSteps, settleDelay, scanFileName);
+
+  // Are we measuring detector voltages?
+  } else if ((plotType == PLOT_TYPE_FWD || plotType == PLOT_TYPE_REV) &&
+              startFreq != 0L) {
+    oscilloscope(verbose, port, startFreq, settleDelay, scanFileName, plotType);
+
   }
 
   // Are we plotting?
@@ -455,7 +566,7 @@ bool window = FALSE;
   if ( plotFileName[0] != '\0' || // to a file
        window                     // to a window
      ) {
-    plot(window, title, term, plotFileName, scanFileName);
+    plot(window, title, term, plotFileName, scanFileName, plotType);
   }
 
   if (verbose) {
