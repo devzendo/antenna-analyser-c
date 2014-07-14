@@ -70,39 +70,49 @@ static void banner()
 static void usage()
 {
   banner();
-  printf("This program can be run in one of two modes:\n");
+  printf("This program can be run in one of three modes:\n");
   printf("* Use a connected analyser to scan a frequency range, writing the\n");
   printf("  output to a file.\n");
+  printf("* Use a connected analyser to measure fwd/rev detector voltages,\n");
+  printf("  writing the output to a file.\n");
   printf("* Generate/display a plot of the current scan, or a previously\n");
   printf("  saved file.\n");
-  printf("- You can run both modes at the same time - scan and plot.\n");
-  printf("- You can measure detector voltages instead of scanning.\n");
+  printf("- You can query the analyser and plot at the same time.\n");
   printf("\n");
   printf("Syntax:\n");
   printf("  %s [options]\n", progname);
   printf("Options:\n");
-  printf("  -v        Enable verbose operation\n");
+  printf("  -v        Enable verbose operation.\n");
   printf("Scan options:\n");
-  printf("  -p<port>  Set analyser port. <port> is something like /dev/tty.usbmodemmfd111.\n");
-  printf("            Default is %s.\n", defport);
   printf("  -a<hz>    Set start frequency in Hertz.\n");
   printf("  -b<hz>    Set stop frequency in Hertz.\n");
-  printf("  -s<ms>    Set settle delay in Milliseconds. Default %d.\n", defsettle);
-  printf("  -n<num>   Set number of steps between start and stop frequency. Default %d.\n", defsteps);
   printf("  -f<file>  Set name of analyser output capture file. Default is a\n");
   printf("            temp file that's deleted. Use this to keep the output.\n");
+  printf("  -n<num>   Set number of steps between start and stop frequency. Default %d.\n", defsteps);
+  printf("  -p<port>  Set analyser port. <port> is something like /dev/tty.usbmodemmfd111.\n");
+  printf("            Default is %s.\n", defport);
+  printf("  -s<ms>    Set settle delay in Milliseconds. Default %d.\n", defsettle);
   printf("(You must give -a/-b to run a scan.)\n");
   printf("\n");
-  printf("Detector voltage scan:\n");
-  printf("  -df       Read forward detector voltages\n");
-  printf("  -dr       Read reverse detector voltages\n");
-  printf("(You may give -a<hz> to set the frequency before measuring voltage)\n");
+  printf("Detector voltage oscilloscope:\n");
+  printf("  -a<hz>    Set a frequency in Hertz before measuring. Default is to\n");
+  printf("            measure with the DDS reset.\n");
+  printf("  -c        Oscilloscope mode, query the analyser for a voltage scan.\n");
+  printf("  -df       Read/plot forward detector voltages.\n");
+  printf("  -dr       Read/plot reverse detector voltages.\n");
+  printf("  -f<file>  Set name of analyser output capture file. Default is a\n");
+  printf("            temp file that's deleted. Use this to keep the output.\n");
+  printf("  -p<port>  Set analyser port. <port> is something like /dev/tty.usbmodemmfd111.\n");
+  printf("            Default is %s.\n", defport);
+  printf("(Use -c to query the analyser; omit it if plotting previous data using\n");
+  printf(" -f<file>\n");
+  printf(" You may give -a<hz> to set the frequency before measuring voltage.)\n");
   printf("\n");
   printf("Plot options:\n");
-  printf("  -t<title> Set the title shown in the plot output\n");
-  printf("  -o<file>  Set name of plot output file e.g. dipole.png\n");
   printf("  -m<term>  Use this terminal type with gnuplot, e.g.\n");
   printf("            qt, aqua, x11, png, canvas, eps. Default is canvas.\n");
+  printf("  -o<file>  Set name of plot output file. e.g. dipole.png\n");
+  printf("  -t<title> Set the title shown in the plot output.\n");
   printf("  -w        Display the plot in a window, using an appropriate\n");
   printf("            gnuplot terminal for your system: aqua on Mac OS X...\n");
   printf("(You must give either -o and -m<term> to plot to a file\n");
@@ -236,18 +246,18 @@ char line[linemax];
     printf("port: %s at %d baud\n", port, defbps);
   }
 
-  scanOutput = fopen(scanFileName, "w+");
-  if (scanOutput == NULL) {
-    printf("Cannot open scan file '%s' for write: %s\n", scanFileName, strerror(errno));
-    exit(-1);
-  }
-
   /* Trap CTRL-C */
   signal(SIGINT, &sighandler);
 
   /* Open port */
   if ((portfd=asy_open(port, defbps)) == -1) {
     printf("port %s open failed\n", port);
+    exit(-1);
+  }
+
+  scanOutput = fopen(scanFileName, "w+");
+  if (scanOutput == NULL) {
+    printf("Cannot open scan file '%s' for write: %s\n", scanFileName, strerror(errno));
     exit(-1);
   }
 
@@ -354,8 +364,10 @@ char scanLineOutput[linemax];
     printf("start freq: %ld Hz, settle: %d ms\n", startFreq, settleDelay);
   }
 
-  sprintf(line, "%ldA", startFreq);
-  write_line_successfully(line, "Could not set start frequency\n", 3);
+  if (startFreq != 0L) {
+    sprintf(line, "%ldA", startFreq);
+    write_line_successfully(line, "Could not set start frequency\n", 3);
+  }
 
   sprintf(line, "%dD", settleDelay);
   write_line_successfully(line, "Could not set settle delay\n", 6);
@@ -434,13 +446,13 @@ char termTitleCommand[linemax];
     case PLOT_TYPE_FWD:
       fprintf(gnuplotCommandsOutput, "set xlabel 'Samples'\n");
       fprintf(gnuplotCommandsOutput, "set ylabel 'Forward Detector'\n");
-      fprintf(gnuplotCommandsOutput, "plot '%s' smooth bezier, '%s' with points\n",
+      fprintf(gnuplotCommandsOutput, "plot '%s' smooth bezier title 'Approximate', '%s' with points title 'Measurements'\n",
         scanFileName, scanFileName);
       break;
     case PLOT_TYPE_REV:
       fprintf(gnuplotCommandsOutput, "set xlabel 'Samples'\n");
       fprintf(gnuplotCommandsOutput, "set ylabel 'Reverse Detector'\n");
-      fprintf(gnuplotCommandsOutput, "plot '%s' smooth bezier, '%s' with points\n",
+      fprintf(gnuplotCommandsOutput, "plot '%s' smooth bezier title 'Approximate', '%s' with points title 'Measurements'\n",
         scanFileName, scanFileName);
       break;
   }
@@ -467,6 +479,7 @@ int settleDelay = defsettle;
 char title[linemax];
 char term[linemax];
 bool window = FALSE;
+bool oscMode = FALSE;
 int plotType = PLOT_TYPE_VSWR;
 
   /* Initialise sensible defaults, etc. */
@@ -476,10 +489,9 @@ int plotType = PLOT_TYPE_VSWR;
   tempScanFileName = allocateTempFileName();
   strcpy(scanFileName, tempScanFileName);
 
-
   plotFileName[0] = '\0';
+  title[0] = '\0';
 
-  strcpy(title, "Unknown Antenna");
   strcpy(term, "canvas");
   
   /* Process command line options */
@@ -493,13 +505,22 @@ int plotType = PLOT_TYPE_VSWR;
         case 'b':
           sscanf(p, "%ld", &stopFreq);
           break;
+        case 'c':
+          oscMode = TRUE;
+          // Choose FWD plot, override this with -df or -dr.
+          if (plotType == PLOT_TYPE_VSWR) {
+            plotType = PLOT_TYPE_FWD;
+          }
+          break;
         case 'd':
           switch (*p) {
             case 'f':
               plotType = PLOT_TYPE_FWD;
+              strcpy(title, "Forward Detector");
               break;
             case 'r':
               plotType = PLOT_TYPE_REV;
+              strcpy(title, "Reverse Detector");
               break;
             default:
               usage();
@@ -549,13 +570,16 @@ int plotType = PLOT_TYPE_VSWR;
       usage();
   }
 
+  if (title[0] == '\0') {
+    strcpy(title, "Unknown Antenna");
+  }
+
   // Are we plotting VSWR?
   if (plotType == PLOT_TYPE_VSWR && startFreq != 0L && stopFreq != 0L) {
     scan(verbose, port, startFreq, stopFreq, numSteps, settleDelay, scanFileName);
 
   // Are we measuring detector voltages?
-  } else if ((plotType == PLOT_TYPE_FWD || plotType == PLOT_TYPE_REV) &&
-              startFreq != 0L) {
+  } else if (oscMode && (plotType == PLOT_TYPE_FWD || plotType == PLOT_TYPE_REV)) {
     oscilloscope(verbose, port, startFreq, settleDelay, scanFileName, plotType);
 
   }
