@@ -361,7 +361,7 @@ char scanLineOutput[linemax];
   openSerialAndScanOutput(verbose, port, scanFileName);
 
   if (verbose) {
-    printf("start freq: %ld Hz, settle: %d ms\n", startFreq, settleDelay);
+    printf("Start freq: %ld Hz, settle: %d ms\n", startFreq, settleDelay);
   }
 
   if (startFreq != 0L) {
@@ -372,7 +372,21 @@ char scanLineOutput[linemax];
   sprintf(line, "%dD", settleDelay);
   write_line_successfully(line, "Could not set settle delay\n", 6);
 
-
+  switch (plotType) {
+    case PLOT_TYPE_FWD:
+      write_line_successfully("F", "Could not request forward measurement\n", 7);
+      if (verbose) {
+        puts("Measuring forward detector\n");
+      }
+      break;
+    case PLOT_TYPE_REV:
+      write_line_successfully("E", "Could not request reverse measurement\n", 7);
+      if (verbose) {
+        puts("Measuring reverse detector\n");
+      }
+      break;
+  }
+ 
   write_line_successfully("o", "Could not start oscilloscope\n", 7);
 
   if (verbose) {
