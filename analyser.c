@@ -3,7 +3,7 @@
 *** Filename         : scope.c
 *** Purpose          : Antenna analyser scan to gnuplot output.
 *** Author           : Matt J. Gumbley
-*** Last updated     : 24/06/14
+*** Last updated     : 08/11/14
 ***
 ********************************************************************************
 ***
@@ -227,7 +227,7 @@ char *tempFileName;
     sprintf(tempPath, "%s/temp.XXXX", tmpenv);
   }
 
-  if (mktemp(tempPath) == NULL) {
+  if (mkstemp(tempPath) == -1) {
     printf("Cannot create temporary file name\n");
     exit(-1);
   }
