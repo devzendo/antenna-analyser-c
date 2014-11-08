@@ -28,6 +28,9 @@
 #include "util.h"
 #include "asy.h"
 
+// use a preprocessor definition to get round error: variably modified ‘scanFileName’ at file scope
+#define fileNameMax 128 // get this from limits.h?
+
 static int quit = FALSE;
 static char *progname;
 static char *defport = "/dev/tty.usbmodemmfd111";
@@ -35,9 +38,7 @@ static int defbps=B57600;
 static int defsettle=10;
 static int defsteps=100;
 static char portfd = -1;
-static int verbose = FALSE;
 static const int linemax = 256;
-static const int fileNameMax = 128; // get this from limits.h?
 static char *tempScanFileName = NULL;
 static char scanFileName[fileNameMax];
 static char plotFileName[fileNameMax];
@@ -372,19 +373,16 @@ char scanLineOutput[linemax];
   sprintf(line, "%dD", settleDelay);
   write_line_successfully(line, "Could not set settle delay\n", 6);
 
-  switch (plotType) {
-    case PLOT_TYPE_FWD:
-      write_line_successfully("F", "Could not request forward measurement\n", 7);
-      if (verbose) {
-        puts("Measuring forward detector\n");
-      }
-      break;
-    case PLOT_TYPE_REV:
-      write_line_successfully("E", "Could not request reverse measurement\n", 7);
-      if (verbose) {
-        puts("Measuring reverse detector\n");
-      }
-      break;
+  if (plotType == PLOT_TYPE_FWD) {
+    write_line_successfully("F", "Could not request forward measurement\n", 7);
+    if (verbose) {
+      puts("Measuring forward detector\n");
+    }
+  } else if (plotType == PLOT_TYPE_REV) {
+    write_line_successfully("E", "Could not request reverse measurement\n", 7);
+    if (verbose) {
+      puts("Measuring reverse detector\n");
+    }
   }
  
   write_line_successfully("o", "Could not start oscilloscope\n", 7);
@@ -450,25 +448,21 @@ char termTitleCommand[linemax];
   fprintf(gnuplotCommandsOutput, "set xtics scale 2,1\n");
   fprintf(gnuplotCommandsOutput, "set mxtics 5\n");
   fprintf(gnuplotCommandsOutput, "set linetype 1 lw 1 lc rgb \"blue\" pointtype 0\n");
-  switch (plotType) {
-    case PLOT_TYPE_VSWR:
-      fprintf(gnuplotCommandsOutput, "set xlabel 'Frequency (MHz)'\n");
-      fprintf(gnuplotCommandsOutput, "set ylabel 'SWR'\n");
-      fprintf(gnuplotCommandsOutput, "plot '%s' smooth bezier title '%s'\n", 
-        scanFileName, title);
-      break;
-    case PLOT_TYPE_FWD:
-      fprintf(gnuplotCommandsOutput, "set xlabel 'Samples'\n");
-      fprintf(gnuplotCommandsOutput, "set ylabel 'Forward Detector'\n");
-      fprintf(gnuplotCommandsOutput, "plot '%s' smooth bezier title 'Approximate', '%s' with points title 'Measurements'\n",
-        scanFileName, scanFileName);
-      break;
-    case PLOT_TYPE_REV:
-      fprintf(gnuplotCommandsOutput, "set xlabel 'Samples'\n");
-      fprintf(gnuplotCommandsOutput, "set ylabel 'Reverse Detector'\n");
-      fprintf(gnuplotCommandsOutput, "plot '%s' smooth bezier title 'Approximate', '%s' with points title 'Measurements'\n",
-        scanFileName, scanFileName);
-      break;
+  if (plotType == PLOT_TYPE_VSWR) {
+    fprintf(gnuplotCommandsOutput, "set xlabel 'Frequency (MHz)'\n");
+    fprintf(gnuplotCommandsOutput, "set ylabel 'SWR'\n");
+    fprintf(gnuplotCommandsOutput, "plot '%s' smooth bezier title '%s'\n", 
+      scanFileName, title);
+  } else if (plotType == PLOT_TYPE_FWD) {
+    fprintf(gnuplotCommandsOutput, "set xlabel 'Samples'\n");
+    fprintf(gnuplotCommandsOutput, "set ylabel 'Forward Detector'\n");
+    fprintf(gnuplotCommandsOutput, "plot '%s' smooth bezier title 'Approximate', '%s' with points title 'Measurements'\n",
+      scanFileName, scanFileName);
+  } else if (plotType == PLOT_TYPE_REV) {
+    fprintf(gnuplotCommandsOutput, "set xlabel 'Samples'\n");
+    fprintf(gnuplotCommandsOutput, "set ylabel 'Reverse Detector'\n");
+    fprintf(gnuplotCommandsOutput, "plot '%s' smooth bezier title 'Approximate', '%s' with points title 'Measurements'\n",
+      scanFileName, scanFileName);
   }
   fclose(gnuplotCommandsOutput);
     
@@ -495,6 +489,7 @@ char term[linemax];
 bool window = FALSE;
 bool oscMode = FALSE;
 int plotType = PLOT_TYPE_VSWR;
+bool verbose = FALSE;
 
   /* Initialise sensible defaults, etc. */
   progname = argv[0];
@@ -612,5 +607,6 @@ int plotType = PLOT_TYPE_VSWR;
   }
 
   finish(0);
+  return 0;
 }
 

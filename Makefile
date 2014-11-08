@@ -1,10 +1,10 @@
 # Choose one platform
 
 # For Mac OS X 10.7
-PLATFORM=MACOSX
+#PLATFORM=MACOSX
 
 # For Ubuntu, Debian, Mint
-#PLATFORM=DEBIAN
+PLATFORM=DEBIAN
 
 # For Red Hat, Fedora, CentOS
 #PLATFORM=REDHAT
