@@ -1,9 +1,9 @@
 /*******************************************************************************
 ***
-*** Filename         : scope.c
+*** Filename         : analyser.c
 *** Purpose          : Antenna analyser scan to gnuplot output.
 *** Author           : Matt J. Gumbley
-*** Last updated     : 08/11/14
+*** Last updated     : 21/11/14
 ***
 ********************************************************************************
 ***
@@ -33,7 +33,14 @@
 
 static int quit = FALSE;
 static char *progname;
+
+#ifdef DEBIAN
+static char *defport = "/dev/ttyACM0";
+#endif
+#ifdef MACOSX
 static char *defport = "/dev/tty.usbmodemmfd111";
+#endif
+
 static int defbps=B57600;
 static int defsettle=10;
 static int defsteps=100;
@@ -64,11 +71,12 @@ static void banner()
   printf("With thanks to:\n");
   printf("  Beric Dunn K6BEZ for the analyser design\n");
   printf("  Simon Kennedy G0FCU for assistance with gnuplot\n");
+  printf("  Lars Anderson, Krzysztof Piecuch for testing\n");
   printf("\n");
 }
 
 
-static void usage()
+static void usage(const char *term)
 {
   banner();
   printf("This program can be run in one of three modes:\n");
@@ -111,11 +119,12 @@ static void usage()
   printf("\n");
   printf("Plot options:\n");
   printf("  -m<term>  Use this terminal type with gnuplot, e.g.\n");
-  printf("            qt, aqua, x11, png, canvas, eps. Default is canvas.\n");
+  printf("            qt, aqua, x11, png, canvas, eps. Default is %s.\n", term);
   printf("  -o<file>  Set name of plot output file. e.g. dipole.png\n");
   printf("  -t<title> Set the title shown in the plot output.\n");
   printf("  -w        Display the plot in a window, using an appropriate\n");
-  printf("            gnuplot terminal for your system: aqua on Mac OS X...\n");
+  printf("            gnuplot terminal for your system: aqua on Mac OS X,\n");
+  printf("            x11 or qt on Linux...\n");
   printf("(You must give either -o and -m<term> to plot to a file\n");
   printf(" or -w to display interactively without saving the plot.\n");
   printf(" If you have used -f to scan to a file and want to plot that file,\n");
@@ -222,9 +231,9 @@ char *tempFileName;
   }
 
   if (tmpenv[strlen(tmpenv) - 1] == '/') {
-    sprintf(tempPath, "%stemp.XXXX", tmpenv);
+    sprintf(tempPath, "%stemp.XXXXXX", tmpenv);
   } else {
-    sprintf(tempPath, "%s/temp.XXXX", tmpenv);
+    sprintf(tempPath, "%s/temp.XXXXXX", tmpenv);
   }
 
   if (mkstemp(tempPath) == -1) {
@@ -532,7 +541,7 @@ bool verbose = FALSE;
               strcpy(title, "Reverse Detector");
               break;
             default:
-              usage();
+              usage(term);
           }
           break;
         case 'f':
@@ -572,11 +581,11 @@ bool verbose = FALSE;
 #endif
           break;
         default:
-          usage();
+          usage(term);
       }
     }
     else
-      usage();
+      usage(term);
   }
 
   if (title[0] == '\0') {
