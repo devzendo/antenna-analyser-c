@@ -253,7 +253,7 @@ void openSerialAndScanOutput(bool verbose, char *port, char *scanFileName) {
 char line[linemax];
 
   if (verbose) {
-    printf("port: %s at %d baud\n", port, defbps);
+    printf("port: %s\n", port);
   }
 
   /* Trap CTRL-C */
