@@ -66,7 +66,6 @@ called swr.png in the current directory, showing the SWR across the band. Defaul
 "Oscilloscope" detector voltage plotting...
 ./analyser -c -df -w -mqt
 Plots the forward detector voltage in a window using the gnuplot 'qt' terminal type.
-(On Linux, currently, does not keep this window open - not sure why)
 
 ./analyser -c -df -oplot.png -mpng
 Plots the forward detector voltage to a .png file called plot.png in the current directory.

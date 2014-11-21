@@ -475,7 +475,7 @@ char termTitleCommand[linemax];
   }
   fclose(gnuplotCommandsOutput);
     
-  sprintf(gnuplotCommand, "gnuplot %s", gnuplotCommandsFileName);
+  sprintf(gnuplotCommand, "gnuplot %s --persist", gnuplotCommandsFileName);
   system(gnuplotCommand);
 
   unlink(gnuplotCommandsFileName);
