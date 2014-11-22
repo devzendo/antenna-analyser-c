@@ -92,6 +92,7 @@ static void usage(const char *term)
   printf("  %s [options]\n", progname);
   printf("Options:\n");
   printf("  -v        Enable verbose operation.\n");
+  printf("  -q        Query the analyser for its command set.\n");
   printf("Scan options:\n");
   printf("  -a<hz>    Set start frequency in Hertz.\n");
   printf("  -b<hz>    Set stop frequency in Hertz.\n");
@@ -265,10 +266,12 @@ char line[linemax];
     exit(-1);
   }
 
-  scanOutput = fopen(scanFileName, "w+");
-  if (scanOutput == NULL) {
-    printf("Cannot open scan file '%s' for write: %s\n", scanFileName, strerror(errno));
-    exit(-1);
+  if (scanFileName != NULL) {
+    scanOutput = fopen(scanFileName, "w+");
+    if (scanOutput == NULL) {
+      printf("Cannot open scan file '%s' for write: %s\n", scanFileName, strerror(errno));
+      exit(-1);
+    }
   }
 
   write_line_successfully("q", "Could not send a q query to the analyser\n", 1);
@@ -288,7 +291,9 @@ char line[linemax];
 
 
 void closeSerialAndScanOutput() {
-  fclose(scanOutput);
+  if (scanOutput != NULL) {
+    fclose(scanOutput);
+  }
   scanOutput = NULL;
 
   close_serial();
@@ -368,8 +373,7 @@ char line[linemax];
 long sample_num, voltage;
 char scanLineOutput[linemax];
 
-  openSerialAndScanOutput(verbose, port, scanFileName);
-
+  openSerialAndScanOutput(verbose, port, scanFileName); 
   if (verbose) {
     printf("Start freq: %ld Hz, settle: %d ms\n", startFreq, settleDelay);
   }
@@ -496,6 +500,7 @@ int settleDelay = defsettle;
 char title[linemax];
 char term[linemax];
 bool window = FALSE;
+bool queryMode = FALSE;
 bool oscMode = FALSE;
 int plotType = PLOT_TYPE_VSWR;
 bool verbose = FALSE;
@@ -561,6 +566,9 @@ bool verbose = FALSE;
           strncpy(port, p, portmax);
           /* XXX: check existence, deviceness? */
           break;
+        case 'q':
+          queryMode = TRUE;
+          break;
         case 's':
           sscanf(p, "%d", &settleDelay);
           break;
@@ -592,8 +600,14 @@ bool verbose = FALSE;
     strcpy(title, "Unknown Antenna");
   }
 
+  // Just querying?
+  if (queryMode) {
+    openSerialAndScanOutput(TRUE, port, NULL);
+    closeSerialAndScanOutput();
+  }
+
   // Are we plotting VSWR?
-  if (plotType == PLOT_TYPE_VSWR && startFreq != 0L && stopFreq != 0L) {
+  else if (plotType == PLOT_TYPE_VSWR && startFreq != 0L && stopFreq != 0L) {
     scan(verbose, port, startFreq, stopFreq, numSteps, settleDelay, scanFileName);
 
   // Are we measuring detector voltages?
