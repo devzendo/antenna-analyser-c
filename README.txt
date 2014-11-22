@@ -106,5 +106,6 @@ You should be able to type commands to the analyser, and exit minicom with
 Ctrl-A Q
 5. I've had a report that an Arduino Pro Mini with USB to CP2102 TTL interface
 does not work, but that an Arduino Uno does. The Arduino Micro works.
+6. Try with/without hardware flow control, by omitting/providing the -h option.
 
 

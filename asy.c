@@ -42,7 +42,7 @@ static struct termios OriginalSerialParameters;
 ***                    characteristics.
 *** Preconditions    : Port is a string like "/dev/ttyS0"
 ***                    Baud is B300 to B38400
-***                    Handshake is XONXOFF, RTSCTS
+***                    Hardware is true for RTS/CTS flow control.
 *** Postconditions   : asy_open is positive, and the open worked. (8/N/1 with
 ***                    hardware handshaking.
 ***                    The returned value is the file descriptor for access.
@@ -50,7 +50,7 @@ static struct termios OriginalSerialParameters;
 ***
 *******************************************************************************/
 
-int asy_open(char *Port, int Baud)
+int asy_open(char *Port, int Baud, bool Hardware)
 {
   struct termios SerialParameters;
   int i, fd;
@@ -82,7 +82,7 @@ int asy_open(char *Port, int Baud)
 
   (void) tcgetattr (fd, &OriginalSerialParameters);
 
-  SerialParameters.c_cflag = Baud | CS8 | CLOCAL | CREAD | CRTSCTS;
+  SerialParameters.c_cflag = Baud | CS8 | CLOCAL | CREAD | (Hardware ? CRTSCTS : 0);
   SerialParameters.c_lflag = 0;
   SerialParameters.c_oflag = 0;
   SerialParameters.c_iflag = IGNBRK | IGNPAR;

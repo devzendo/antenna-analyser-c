@@ -91,8 +91,9 @@ static void usage(const char *term)
   printf("Syntax:\n");
   printf("  %s [options]\n", progname);
   printf("Options:\n");
-  printf("  -v        Enable verbose operation.\n");
+  printf("  -h        Enable hardware flow control. Default off.\n");
   printf("  -q        Query the analyser for its command set.\n");
+  printf("  -v        Enable verbose operation.\n");
   printf("Scan options:\n");
   printf("  -a<hz>    Set start frequency in Hertz.\n");
   printf("  -b<hz>    Set stop frequency in Hertz.\n");
@@ -250,7 +251,8 @@ char *tempFileName;
 }
 
 
-void openSerialAndScanOutput(bool verbose, char *port, char *scanFileName) {
+void openSerialAndScanOutput(bool verbose, char *port, char *scanFileName,
+	bool hardwareFlowControl) {
 char line[linemax];
 
   if (verbose) {
@@ -261,7 +263,7 @@ char line[linemax];
   signal(SIGINT, &sighandler);
 
   /* Open port */
-  if ((portfd=asy_open(port, defbps)) == -1) {
+  if ((portfd=asy_open(port, defbps, hardwareFlowControl)) == -1) {
     printf("port %s open failed\n", port);
     exit(-1);
   }
@@ -301,13 +303,13 @@ void closeSerialAndScanOutput() {
 
 
 void scan(bool verbose, char* port, long startFreq, long stopFreq,
-  int numSteps, int settleDelay, char *scanFileName) {
+  int numSteps, int settleDelay, char *scanFileName, bool hardwareFlowControl) {
 bool scan_end = FALSE;
 char line[linemax];
 long scan_freq, scan_vswr, scan_fwdv, scan_revv;
 char scanLineOutput[linemax];
 
-  openSerialAndScanOutput(verbose, port, scanFileName);
+  openSerialAndScanOutput(verbose, port, scanFileName, hardwareFlowControl);
 
   if (verbose) {
     printf("start freq: %ld Hz, end freq: %ld Hz, steps: %d, settle: %d ms\n",
@@ -367,13 +369,13 @@ char scanLineOutput[linemax];
   closeSerialAndScanOutput();
 }
 
-void oscilloscope(bool verbose, char* port, long startFreq, int settleDelay, char *scanFileName, int plotType) {
+void oscilloscope(bool verbose, char* port, long startFreq, int settleDelay, char *scanFileName, int plotType, bool hardwareFlowControl) {
 bool scan_end = FALSE;
 char line[linemax];
 long sample_num, voltage;
 char scanLineOutput[linemax];
 
-  openSerialAndScanOutput(verbose, port, scanFileName); 
+  openSerialAndScanOutput(verbose, port, scanFileName, hardwareFlowControl); 
   if (verbose) {
     printf("Start freq: %ld Hz, settle: %d ms\n", startFreq, settleDelay);
   }
@@ -504,6 +506,7 @@ bool queryMode = FALSE;
 bool oscMode = FALSE;
 int plotType = PLOT_TYPE_VSWR;
 bool verbose = FALSE;
+bool hardwareFlowControl = FALSE;
 
   /* Initialise sensible defaults, etc. */
   progname = argv[0];
@@ -552,6 +555,9 @@ bool verbose = FALSE;
         case 'f':
           strncpy(scanFileName, p, fileNameMax);
           scanFileTemporary = FALSE;
+          break;
+        case 'h':
+          hardwareFlowControl = TRUE;
           break;
         case 'm':
           strncpy(term, p, linemax);
@@ -602,17 +608,17 @@ bool verbose = FALSE;
 
   // Just querying?
   if (queryMode) {
-    openSerialAndScanOutput(TRUE, port, NULL);
+    openSerialAndScanOutput(TRUE, port, NULL, hardwareFlowControl);
     closeSerialAndScanOutput();
   }
 
   // Are we plotting VSWR?
   else if (plotType == PLOT_TYPE_VSWR && startFreq != 0L && stopFreq != 0L) {
-    scan(verbose, port, startFreq, stopFreq, numSteps, settleDelay, scanFileName);
+    scan(verbose, port, startFreq, stopFreq, numSteps, settleDelay, scanFileName, hardwareFlowControl);
 
   // Are we measuring detector voltages?
   } else if (oscMode && (plotType == PLOT_TYPE_FWD || plotType == PLOT_TYPE_REV)) {
-    oscilloscope(verbose, port, startFreq, settleDelay, scanFileName, plotType);
+    oscilloscope(verbose, port, startFreq, settleDelay, scanFileName, plotType, hardwareFlowControl);
 
   }
 
