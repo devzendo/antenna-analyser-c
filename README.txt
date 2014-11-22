@@ -108,4 +108,11 @@ Ctrl-A Q
 does not work, but that an Arduino Uno does. The Arduino Micro works.
 6. Try with/without hardware flow control, by omitting/providing the -h option.
 
+Q. I'm seeing:
+"./analyser -c -df -w
+port /dev/ttyACM0 open failed"
+A. You need to sudo chmod 666 /dev/ttyACM0 as by default a non-root user won't
+have the necessary permissions.
+
+
 
